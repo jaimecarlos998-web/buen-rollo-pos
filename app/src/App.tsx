@@ -10,6 +10,7 @@ import Ventas from './pages/Ventas'
 import Compras from './pages/Compras'
 const Comparador = lazy(() => import('./pages/Comparador'))
 const Resumen = lazy(() => import('./pages/Resumen'))
+const Equivalencias = lazy(() => import('./pages/Equivalencias'))
 import Envios from './pages/Envios'
 import Ajustes from './pages/Ajustes'
 import Mas from './pages/Mas'
@@ -77,6 +78,7 @@ export default function App() {
           {esDueno && <Route path="/compras" element={<Compras />} />}
           {esDueno && <Route path="/comparador" element={<Comparador />} />}
           {esDueno && <Route path="/resumen" element={<Resumen />} />}
+          {esDueno && <Route path="/equivalencias" element={<Equivalencias />} />}
           <Route path="/ajustes" element={<Ajustes />} />
           <Route path="*" element={<Navigate to="/vender" replace />} />
         </Routes>
@@ -86,7 +88,7 @@ export default function App() {
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-stone-200 pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-3xl mx-auto grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
           {tabs.map((t) => {
-            const activo = loc.pathname.startsWith(t.to) || (t.to === '/mas' && ['/comparador', '/resumen', '/ajustes', '/envios'].some((p) => loc.pathname.startsWith(p)) && !tabs.some((x) => x.to !== '/mas' && loc.pathname.startsWith(x.to)))
+            const activo = loc.pathname.startsWith(t.to) || (t.to === '/mas' && ['/comparador', '/resumen', '/ajustes', '/envios', '/equivalencias'].some((p) => loc.pathname.startsWith(p)) && !tabs.some((x) => x.to !== '/mas' && loc.pathname.startsWith(x.to)))
             return (
               <NavLink key={t.to} to={t.to} className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-semibold ${activo ? 'text-marca' : 'text-stone-500'}`}>
                 <Icono n={t.n} className="w-6 h-6" />

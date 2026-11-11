@@ -8,6 +8,7 @@ export default function Mas() {
     ...(esDueno ? [
       { to: '/resumen', n: 'grafico', t: 'Resumen del negocio', d: 'Ventas, ganancia, stock y más vendidos' },
       { to: '/comparador', n: 'balanza', t: 'Comparador de proveedores', d: 'Subí listas de precios y compará' },
+      { to: '/equivalencias', n: 'lista', t: 'Equivalencias de proveedores', d: 'Nombre en la factura → tu nombre corto' },
     ] : []),
     { to: '/envios', n: 'envio', t: 'Envíos', d: 'Pedidos para entregar' },
     { to: '/ajustes', n: 'ajustes', t: esDueno ? 'Ajustes' : 'Mi PIN', d: esDueno ? 'Usuarios, márgenes, Google Sheets' : 'Cambiar mi PIN' },

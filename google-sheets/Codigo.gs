@@ -15,7 +15,7 @@
  *  - Compras:    app ⇄ planilla. Para cargar una compra desde acá, agregá filas al final con la columna ID vacía.
  *                Suma stock y actualiza el costo; si completás "Precio venta nuevo" también cambia el precio.
  *  - Precios proveedores: app ⇄ planilla. Pegá la lista de un proveedor al final (ID vacío) y aparece en el comparador.
- *  - Ventas y Resumen: sólo app → planilla (las ventas se cargan desde la app).
+ *  - Ventas, Equivalencias y Resumen: sólo app → planilla.
  */
 
 const SUPABASE_URL = 'https://nscbmuulxzrwqbsvmudm.supabase.co';
@@ -37,6 +37,10 @@ const HOJAS = {
   precios: {
     nombre: 'Precios proveedores',
     encabezados: ['ID', 'Proveedor', 'Código', 'Descripción', 'Precio', 'Fecha lista', 'SKU vinculado', 'Producto vinculado', 'Mi costo', 'Dif. vs mi costo %'],
+  },
+  equivalencias: {
+    nombre: 'Equivalencias',
+    encabezados: ['Proveedor', 'Código proveedor', 'Cómo figura en la factura', 'SKU', 'Mi producto', 'Unidades por bulto'],
   },
   resumen: { nombre: 'Resumen' },
 };
@@ -99,6 +103,7 @@ function sincronizar() {
       return [c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], '', c[8], c[9], c[10], c[11]];
     }));
     escribir_(HOJAS.precios, datos.precios);
+    escribir_(HOJAS.equivalencias, rpc_('sync_equivalencias', {}));
     escribirResumen_(datos);
     escribirEstado_('✅ Sincronizado ' + Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'dd/MM HH:mm'));
   } finally {
@@ -210,7 +215,7 @@ function escribirEstado_(t) { hoja_(HOJAS.resumen).getRange('B9').setValue(t); }
 
 // ───────────────────────── Preparación y formato ─────────────────────────
 function prepararHojas_() {
-  [HOJAS.productos, HOJAS.ventas, HOJAS.compras, HOJAS.precios].forEach(function (def) {
+  [HOJAS.productos, HOJAS.ventas, HOJAS.compras, HOJAS.precios, HOJAS.equivalencias].forEach(function (def) {
     var h = hoja_(def);
     var enc = h.getRange(1, 1, 1, def.encabezados.length);
     if (enc.getValues()[0].join('|') !== def.encabezados.join('|')) {
