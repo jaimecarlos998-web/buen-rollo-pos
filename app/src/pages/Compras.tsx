@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import Icono from '../components/Icono'
 import { useConfig, useProductosDueno } from '../lib/catalogo'
 import { $, fecha, filtrar, hoyISO, n, norm, pct, precioSugerido, similitud } from '../lib/formato'
-import { prepararImagen } from '../lib/imagenes'
-import { mensajeError, supabase, SUPABASE_URL, SUPABASE_KEY, type Producto } from '../lib/supabase'
+import { detectarTablas, leerArchivo, leerRenglones, type TablaDetectada } from '../lib/planillas'
+import { mensajeError, supabase, type Producto } from '../lib/supabase'
 
 type Estado = 'manual' | 'reconocido' | 'sugerido' | 'sin_vincular' | 'nuevo'
 type Item = {
@@ -50,6 +50,7 @@ export default function Compras() {
   const [observaciones, setObservaciones] = useState('')
   const [totalLeido, setTotalLeido] = useState<number | null>(null)
   const [vinculando, setVinculando] = useState<string | null>(null)
+  const [tablas, setTablas] = useState<{ hoja: string; tabla: TablaDetectada; filas: unknown[][]; n: number; muestra: string[] }[] | null>(null)
 
   async function cargarHist() {
     const { data } = await supabase.from('compras').select('id,fecha,nro_comprobante,total,origen,fotos,proveedores(nombre),compra_items(nombre,cantidad,costo_unit,costo_anterior)').order('fecha', { ascending: false }).order('id', { ascending: false }).limit(30)
@@ -75,31 +76,32 @@ export default function Compras() {
   }
   const upd = (key: string, cambios: Partial<Item>) => setItems((it) => it.map((i) => (i.key === key ? { ...i, ...cambios } : i)))
 
-  // ── Foto → IA → renglones vinculados ──
-  async function leerFotos(files: FileList | null) {
-    if (!files?.length) return
-    setMsg(null); setObservaciones(''); setTotalLeido(null)
+  // ── Excel del comprobante → renglones vinculados ──
+  async function subirAdjunto(file: File) {
+    const ext = (file.name.split('.').pop() || 'bin').toLowerCase()
+    const ruta = `${hoyISO().slice(0, 7)}/${nuevaKey()}.${ext}`
+    const { error } = await supabase.storage.from('comprobantes').upload(ruta, file, { contentType: file.type || undefined })
+    if (!error) setFotos((f) => [...f, ruta])
+  }
+
+  async function leerExcel(file?: File) {
+    if (!file) return
+    if (!proveedor.trim()) { setMsg({ ok: false, t: 'Elegí primero el proveedor, así reconozco sus códigos.' }); return }
+    setMsg(null); setLeyendo('Leyendo el Excel…')
     try {
-      setLeyendo('Preparando fotos…')
-      const preparadas = await Promise.all([...files].slice(0, 6).map((f) => prepararImagen(f)))
-      setLeyendo('Guardando fotos…')
-      const rutas: string[] = []
-      for (const p of preparadas) {
-        const ruta = `${hoyISO().slice(0, 7)}/${nuevaKey()}.${p.media_type === 'application/pdf' ? 'pdf' : 'jpg'}`
-        const { error } = await supabase.storage.from('comprobantes').upload(ruta, p.blob, { contentType: p.media_type })
-        if (!error) rutas.push(ruta)
+      const libro = await leerArchivo(file)
+      const encontradas: { hoja: string; tabla: TablaDetectada; filas: unknown[][]; n: number; muestra: string[] }[] = []
+      for (const hoja of libro.hojas) {
+        const filas = libro.filas(hoja)
+        for (const t of detectarTablas(filas)) {
+          const r = leerRenglones(filas, t)
+          if (r.length) encontradas.push({ hoja, tabla: t, filas, n: r.length, muestra: r.slice(0, 3).map((x) => x.descripcion) })
+        }
       }
-      setFotos((f) => [...f, ...rutas])
-      setLeyendo('Leyendo el comprobante… (puede tardar unos segundos)')
-      const { data: ses } = await supabase.auth.getSession()
-      const r = await fetch(`${SUPABASE_URL}/functions/v1/leer-comprobante`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${ses.session?.access_token}` },
-        body: JSON.stringify({ imagenes: preparadas.map((p) => ({ media_type: p.media_type, data: p.base64 })), proveedores }),
-      })
-      const res = await r.json().catch(() => ({ error: `Error ${r.status}` }))
-      if (!r.ok || res.error) throw new Error(res.error ?? `Error ${r.status}`)
-      await aplicarLectura(res.comprobante as Leido)
+      if (!encontradas.length) throw new Error('No encontré la tabla de productos. Los títulos de las columnas tienen que decir algo como Código, Cantidad, Descripción y Precio.')
+      subirAdjunto(file)
+      if (encontradas.length === 1) await importarTabla(encontradas[0].filas, encontradas[0].tabla)
+      else setTablas(encontradas)
     } catch (e) {
       setMsg({ ok: false, t: mensajeError(e) })
     } finally {
@@ -107,9 +109,15 @@ export default function Compras() {
     }
   }
 
+  async function importarTabla(filas: unknown[][], tabla: TablaDetectada) {
+    setTablas(null)
+    const renglones = leerRenglones(filas, tabla)
+    await aplicarLectura({ items: renglones.map((r) => ({ codigo: r.codigo, descripcion: r.descripcion, cantidad: r.cantidad, precio_unitario: r.precio_unitario })), total: renglones.reduce((s, r) => s + (r.total ?? r.cantidad * r.precio_unitario), 0) })
+  }
+
   async function aplicarLectura(l: Leido) {
     // proveedor: el más parecido de los que ya existen
-    let prov = l.proveedor?.trim() ?? ''
+    let prov = l.proveedor?.trim() || proveedor.trim()
     if (prov) {
       const mejor = proveedores.map((p) => ({ p, s: Math.max(similitud(p, prov), norm(prov).includes(norm(p)) ? 0.9 : 0) })).sort((a, b) => b.s - a.s)[0]
       if (mejor && mejor.s >= 0.5) prov = mejor.p
@@ -173,7 +181,7 @@ export default function Compras() {
     setGuardando(false)
     if (error) { setMsg({ ok: false, t: mensajeError(error) }); return }
     const subieron = items.filter((i) => num(i.precioNuevo) != null).length
-    setMsg({ ok: true, t: `Compra registrada por ${$(total)}. Stock actualizado${subieron ? ` y ${subieron} precio(s) cambiados` : ''}. Las equivalencias quedaron guardadas para la próxima.` })
+    setMsg({ ok: true, t: `Compra registrada por ${$(total)}. Stock actualizado${subieron ? ` y ${subieron} precio(s) cambiados` : ''}. Las equivalencias quedaron guardadas para la próxima factura.` })
     setItems([]); setNro(''); setFotos([]); setIvaPct(0); setObservaciones(''); setTotalLeido(null)
     recargar(); cargarHist()
   }
@@ -183,13 +191,6 @@ export default function Compras() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-bold">Cargar compra</h1>
-
-      <label className={`tarjeta p-4 flex items-center gap-3 cursor-pointer border-2 border-dashed border-marca/40 bg-marca-claro/30 ${leyendo ? 'pointer-events-none opacity-70' : ''}`}>
-        <span className="w-12 h-12 rounded-xl bg-marca text-white grid place-items-center shrink-0"><Icono n="camara" className="w-6 h-6" /></span>
-        <span className="flex-1"><b>Cargar desde foto del remito o factura</b><span className="block text-sm text-stone-600">{leyendo || 'Podés elegir varias fotos si son varias hojas. También sirve un PDF.'}</span></span>
-        <input type="file" accept="image/*,application/pdf" multiple capture="environment" className="hidden" onChange={(e) => { leerFotos(e.target.files); e.target.value = '' }} />
-      </label>
-      {leyendo && <div className="h-1.5 rounded-full bg-stone-200 overflow-hidden"><div className="h-full w-1/3 bg-marca animate-[pulse_1s_ease-in-out_infinite]" /></div>}
 
       <div className="tarjeta p-3 space-y-2">
         <div>
@@ -206,8 +207,30 @@ export default function Compras() {
           Los precios no incluyen IVA: sumar
           <input value={ivaPct || 21} onChange={(e) => setIvaPct(Number(e.target.value) || 0)} disabled={!ivaPct} className="campo w-16 py-1 px-2 num" inputMode="decimal" />% al costo
         </label>
-        {fotos.length > 0 && <p className="text-xs text-stone-500">📎 {fotos.length} foto(s) adjunta(s) a esta compra</p>}
+        {fotos.length > 0 && <p className="text-xs text-stone-500">📎 {fotos.length} archivo(s) adjunto(s) a esta compra</p>}
       </div>
+
+      <label className={`tarjeta p-4 flex items-center gap-3 cursor-pointer border-2 border-dashed border-marca/40 bg-marca-claro/30 ${leyendo ? 'pointer-events-none opacity-70' : ''} ${!proveedor.trim() ? 'opacity-60' : ''}`}>
+        <span className="w-12 h-12 rounded-xl bg-marca text-white grid place-items-center shrink-0"><Icono n="subir" className="w-6 h-6" /></span>
+        <span className="flex-1"><b>Cargar el Excel del comprobante</b><span className="block text-sm text-stone-600">{leyendo || (proveedor.trim() ? 'El que armás escaneando la factura (.xlsx, .xls o .csv). Reconozco la tabla sola.' : 'Primero elegí el proveedor arriba.')}</span></span>
+        <input type="file" accept=".xlsx,.xls,.csv,.ods" className="hidden" onChange={(e) => { leerExcel(e.target.files?.[0]); e.target.value = '' }} />
+      </label>
+      <label className="flex items-center justify-center gap-2 text-sm text-marca font-semibold cursor-pointer">
+        <Icono n="camara" className="w-4 h-4" /> Adjuntar foto de la factura (opcional)
+        <input type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={(e) => { [...(e.target.files ?? [])].forEach(subirAdjunto); e.target.value = '' }} />
+      </label>
+
+      {tablas && (
+        <div className="tarjeta p-3 space-y-2">
+          <b>Encontré {tablas.length} tablas en el archivo. ¿Cuál es la de esta compra?</b>
+          {tablas.map((t, k) => (
+            <button key={k} onClick={() => importarTabla(t.filas, t.tabla)} className="w-full text-left rounded-xl border border-stone-200 p-2.5 hover:border-marca">
+              <div className="text-sm font-semibold">{t.n} productos · hoja “{t.hoja}”</div>
+              <div className="text-xs text-stone-500">{t.muestra.join(' · ')}…</div>
+            </button>
+          ))}
+        </div>
+      )}
 
       {observaciones && <p className="rounded-xl px-3 py-2 bg-amber-50 text-amber-900 text-sm">⚠️ {observaciones}</p>}
 
@@ -278,8 +301,8 @@ export default function Compras() {
 function VerFoto({ ruta }: { ruta: string }) {
   const [url, setUrl] = useState('')
   return url
-    ? <a href={url} target="_blank" rel="noreferrer" className="text-marca underline block mt-1">Abrir foto</a>
-    : <button onClick={async () => { const { data } = await supabase.storage.from('comprobantes').createSignedUrl(ruta, 600); if (data) { setUrl(data.signedUrl); window.open(data.signedUrl, '_blank') } }} className="text-marca underline block mt-1">📎 Ver foto del comprobante</button>
+    ? <a href={url} target="_blank" rel="noreferrer" className="text-marca underline block mt-1">Abrir archivo</a>
+    : <button onClick={async () => { const { data } = await supabase.storage.from('comprobantes').createSignedUrl(ruta, 600); if (data) { setUrl(data.signedUrl); window.open(data.signedUrl, '_blank') } }} className="text-marca underline block mt-1">📎 Ver archivo del comprobante</button>
 }
 
 const CHIP: Record<Estado, [string, string]> = {

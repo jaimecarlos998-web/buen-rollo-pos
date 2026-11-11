@@ -1,9 +1,9 @@
--- Fotos de comprobantes + tabla de equivalencias proveedor → producto propio
+-- Archivos de comprobantes (Excel, fotos) + tabla de equivalencias proveedor → producto propio
 
 alter table public.compras add column if not exists fotos text[] not null default '{}';
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('comprobantes', 'comprobantes', false, 8 * 1024 * 1024, array['image/jpeg','image/png','image/webp','application/pdf'])
+values ('comprobantes', 'comprobantes', false, 8 * 1024 * 1024, array['image/jpeg','image/png','image/webp','application/pdf','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.ms-excel','text/csv'])
 on conflict (id) do nothing;
 
 create policy comprobantes_dueno_leer on storage.objects for select to authenticated
