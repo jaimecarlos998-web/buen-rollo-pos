@@ -21,6 +21,7 @@ export default function Vender() {
   const [metodo, setMetodo] = useState('')
   const [cliente, setCliente] = useState('')
   const [notas, setNotas] = useState('')
+  const [pagaCon, setPagaCon] = useState('')
   const [escaneando, setEscaneando] = useState(false)
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error' | 'info'; texto: string } | null>(null)
   const [verCarrito, setVerCarrito] = useState(false)
@@ -34,6 +35,9 @@ export default function Vender() {
   const resultados = useMemo(() => filtrar(productos, q, 40), [productos, q])
   const total = carrito.reduce((s, l) => s + l.cantidad * l.precio, 0)
   const unidades = carrito.reduce((s, l) => s + l.cantidad, 0)
+  const paga = pagaCon.trim() === '' ? null : Number(pagaCon.replace(/\./g, '').replace(',', '.'))
+  // billetes sugeridos: el total redondeado hacia arriba a 1.000, 2.000, 5.000, 10.000 y 20.000
+  const billetes = [...new Set([1000, 2000, 5000, 10000, 20000].map((b) => Math.ceil(total / b) * b))].filter((v) => v > total).sort((a, b) => a - b).slice(0, 4)
 
   const agregar = useCallback((p: Producto, cant = 1) => {
     setCarrito((c) => {
@@ -71,6 +75,7 @@ export default function Vender() {
   async function cobrar() {
     if (!carrito.length) return
     if (!metodo) { setAviso({ tipo: 'error', texto: 'Elegí el medio de pago' }); return }
+    if (metodo === 'Efectivo' && paga != null && paga < total) { setAviso({ tipo: 'error', texto: `Faltan ${$(total - paga)}: revisá con cuánto paga` }); return }
     if (carrito.some((l) => !(l.cantidad > 0))) { setAviso({ tipo: 'error', texto: 'Hay una cantidad inválida' }); return }
     const venta: VentaPendiente = {
       client_uuid: uuid(),
@@ -79,7 +84,8 @@ export default function Vender() {
         producto_id: l.p.id, cantidad: l.cantidad, nombre: l.p.nombre, precio_lista: l.p.precio,
         ...(esDueno && l.precio !== l.p.precio ? { precio: l.precio } : {}),
       })),
-      metodo_pago: metodo, cliente, notas,
+      metodo_pago: metodo, cliente,
+      notas: [notas.trim(), metodo === 'Efectivo' && paga != null && paga >= total ? `Pagó con ${$(paga)}, vuelto ${$(paga - total)}` : ''].filter(Boolean).join(' · '),
     }
     setEnviando(true)
     try {
@@ -98,7 +104,7 @@ export default function Vender() {
     }
     // descuenta stock en pantalla al instante
     setProductos((ps) => ps.map((p) => { const l = carrito.find((x) => x.p.id === p.id); return l ? { ...p, stock: p.stock - l.cantidad } : p }))
-    setCarrito([]); setMetodo(''); setCliente(''); setNotas(''); setVerCarrito(false); setQ('')
+    setCarrito([]); setMetodo(''); setCliente(''); setNotas(''); setPagaCon(''); setVerCarrito(false); setQ('')
     setEnviando(false)
     setTimeout(recargar, 1500)
   }
@@ -200,6 +206,24 @@ export default function Vender() {
                   ))}
                 </div>
               </div>
+
+              {metodo === 'Efectivo' && total > 0 && (
+                <div className="mt-3 tarjeta p-3">
+                  <label className="etiqueta">¿Con cuánto paga?</label>
+                  <div className="flex gap-2 flex-wrap">
+                    <input value={pagaCon} onChange={(e) => setPagaCon(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="numeric" placeholder="$" className="campo w-32 num text-lg font-bold" />
+                    <button onClick={() => setPagaCon(String(total))} className={`px-3 py-2 rounded-xl border text-sm font-semibold ${paga === total ? 'bg-marca text-white border-marca' : 'bg-white border-stone-300'}`}>Justo</button>
+                    {billetes.map((b) => (
+                      <button key={b} onClick={() => setPagaCon(String(b))} className={`px-3 py-2 rounded-xl border text-sm font-semibold num ${paga === b ? 'bg-marca text-white border-marca' : 'bg-white border-stone-300'}`}>{$(b)}</button>
+                    ))}
+                  </div>
+                  {paga != null && !isNaN(paga) && (
+                    paga >= total
+                      ? <div className="mt-3 flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2"><span className="font-semibold text-emerald-800">Vuelto</span><span className="text-3xl font-extrabold num text-emerald-700">{$(paga - total)}</span></div>
+                      : <div className="mt-3 flex items-center justify-between rounded-xl bg-red-50 px-3 py-2"><span className="font-semibold text-red-700">Falta</span><span className="text-2xl font-extrabold num text-red-700">{$(total - paga)}</span></div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <div>
