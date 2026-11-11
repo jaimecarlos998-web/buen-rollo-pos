@@ -122,8 +122,8 @@ export default function Vender() {
         {resultados.map((p) => {
           const enCarrito = carrito.find((l) => l.p.id === p.id)?.cantidad
           return (
-            <li key={p.id}>
-              <button onClick={() => agregar(p)} className="w-full text-left px-3 py-2.5 flex items-center gap-3 active:bg-marca-claro/50">
+            <li key={p.id} className={`flex items-center gap-2 pr-2 ${enCarrito ? 'bg-marca-claro/40' : ''}`}>
+              <button onClick={() => agregar(p)} className="flex-1 min-w-0 text-left pl-3 py-2.5 flex items-center gap-3 active:bg-marca-claro/50">
                 <div className="flex-1 min-w-0">
                   <div className="font-medium leading-tight truncate">{p.nombre}</div>
                   <div className="text-xs text-stone-500 mt-0.5 flex gap-2">
@@ -131,11 +131,17 @@ export default function Vender() {
                     <span className={p.stock <= 0 ? 'text-red-600 font-semibold' : p.stock <= p.stock_minimo ? 'text-amber-600 font-semibold' : ''}>Stock {n(p.stock)}</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="font-bold num">{p.precio > 0 ? $(p.precio) : <span className="text-red-600 text-sm">Sin precio</span>}</div>
-                  {enCarrito ? <span className="chip bg-marca text-white mt-0.5">×{n(enCarrito)}</span> : null}
-                </div>
+                <div className="font-bold num text-right">{p.precio > 0 ? $(p.precio) : <span className="text-red-600 text-sm">Sin precio</span>}</div>
               </button>
+              {enCarrito ? (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => cambiarCant(p.id, -1)} aria-label={`Restar ${p.nombre}`} className="w-9 h-9 rounded-lg bg-white border border-stone-300 grid place-items-center active:scale-95"><Icono n="menos" /></button>
+                  <span className="w-7 text-center font-bold num">{n(enCarrito)}</span>
+                  <button onClick={() => agregar(p)} aria-label={`Sumar ${p.nombre}`} className="w-9 h-9 rounded-lg bg-marca text-white grid place-items-center active:scale-95"><Icono n="sumar" /></button>
+                </div>
+              ) : (
+                <button onClick={() => agregar(p)} aria-label={`Agregar ${p.nombre}`} className="w-9 h-9 shrink-0 rounded-lg bg-marca-claro text-marca grid place-items-center active:scale-95"><Icono n="sumar" /></button>
+              )}
             </li>
           )
         })}
