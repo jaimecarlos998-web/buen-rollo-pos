@@ -114,6 +114,7 @@ function StockDueno() {
       {editando && (
         <EditarProducto producto={editando === 'nuevo' ? null : editando} margen={config.margen_objetivo} redondeo={config.redondeo}
           onCerrar={() => setEditando(null)}
+          onEliminado={(id) => { setProductos((ps) => ps.filter((x) => x.id !== id)); setEditando(null) }}
           onGuardado={(p) => { setProductos((ps) => (ps.some((x) => x.id === p.id) ? ps.map((x) => (x.id === p.id ? p : x)) : [...ps, p].sort((a, b) => a.nombre.localeCompare(b.nombre)))); setEditando(null) }} />
       )}
     </div>
@@ -122,7 +123,7 @@ function StockDueno() {
 
 type Hist = { fecha: string; costo_anterior: number | null; costo_nuevo: number | null; precio_anterior: number | null; precio_nuevo: number | null; motivo: string }
 
-function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado }: { producto: Producto | null; margen: number; redondeo: number; onCerrar: () => void; onGuardado: (p: Producto) => void }) {
+function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado, onEliminado }: { producto: Producto | null; margen: number; redondeo: number; onCerrar: () => void; onGuardado: (p: Producto) => void; onEliminado: (id: number) => void }) {
   const [f, setF] = useState({
     nombre: producto?.nombre ?? '', sku: producto?.sku ?? '', codigo_barras: producto?.codigo_barras ?? '',
     costo: producto?.costo?.toString() ?? '', precio: producto?.precio?.toString() ?? '',
@@ -142,6 +143,12 @@ function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado }: { 
     supabase.from('historial_precios').select('fecha,costo_anterior,costo_nuevo,precio_anterior,precio_nuevo,motivo').eq('producto_id', producto.id).order('fecha', { ascending: false }).limit(10)
       .then(({ data }) => setHist((data as Hist[]) ?? []))
   }, [producto])
+
+  async function eliminar() {
+    if (!producto || !confirm(`¿Borrar "${producto.nombre}"? Si tiene ventas o compras queda archivado: deja de aparecer, pero el historial se conserva.`)) return
+    const { error } = await supabase.rpc('eliminar_producto', { p_id: producto.id })
+    if (error) setError(mensajeError(error)); else onEliminado(producto.id)
+  }
 
   async function guardar() {
     if (!f.nombre.trim()) { setError('Falta el nombre'); return }
@@ -191,6 +198,7 @@ function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado }: { 
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.activo} onChange={(e) => setF({ ...f, activo: e.target.checked })} className="w-5 h-5 accent-marca" /> Activo (aparece para vender)</label>
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <button onClick={guardar} disabled={guardando} className="btn-primario w-full py-3">{guardando ? 'Guardando…' : 'Guardar'}</button>
+          {producto && <button onClick={eliminar} className="w-full py-2 text-red-600 text-sm font-semibold flex items-center justify-center gap-1"><Icono n="basura" className="w-4 h-4" /> Borrar producto</button>}
 
           {hist.length > 0 && (
             <div>

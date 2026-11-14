@@ -31,7 +31,7 @@ export function useProductosDueno() {
     setCargando(true)
     const todos: Producto[] = []
     for (let desde = 0; ; desde += 1000) {
-      const { data, error } = await supabase.from('productos').select('*').order('nombre').range(desde, desde + 999)
+      const { data, error } = await supabase.from('productos').select('*').eq('eliminado', false).order('nombre').range(desde, desde + 999)
       if (error || !data) break
       todos.push(...(data as Producto[]))
       if (data.length < 1000) break

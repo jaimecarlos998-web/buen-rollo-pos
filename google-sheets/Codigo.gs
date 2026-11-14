@@ -11,6 +11,8 @@
  * Qué se sincroniza:
  *  - Productos:  app ⇄ planilla. Podés cambiar nombre, código de barras, costo, precio, stock, stock mínimo y "Activo".
  *                Para agregar un producto, escribí una fila nueva al final (el SKU se genera solo si lo dejás vacío).
+ *                Para borrar: eliminá la fila, o escribí "Borrar" en la columna Activo (sirve para borrar muchos juntos).
+ *                Si el producto tiene ventas o compras queda archivado (no aparece más, pero el historial se conserva).
  *                El stock se ajusta por diferencia, así no se pisan ventas hechas mientras tanto.
  *  - Compras:    app ⇄ planilla. Para cargar una compra desde acá, agregá filas al final con la columna ID vacía.
  *                Suma stock y actualiza el costo; si completás "Precio venta nuevo" también cambia el precio.
@@ -86,7 +88,8 @@ function sincronizar() {
   if (!lock.tryLock(20000)) return;
   try {
     prepararHojas_();
-    var errores = [];
+    var errores = [], avisos = [];
+    try { var b = subirBorrados_(); if (b) avisos.push(b); } catch (e) { avisos.push('⚠️ ' + e.message); }
     try { subirProductos_(); } catch (e) { errores.push('Productos: ' + e.message); }
     try { subirCompras_(); } catch (e) { errores.push('Compras: ' + e.message); }
     try { subirPrecios_(); } catch (e) { errores.push('Precios: ' + e.message); }
@@ -97,6 +100,7 @@ function sincronizar() {
     }
     var datos = rpc_('sync_exportar', {});
     escribirProductos_(datos.productos);
+    guardarSkus_(datos.productos.map(function (p) { return p[0]; }));
     escribir_(HOJAS.ventas, datos.ventas);
     escribir_(HOJAS.compras, datos.compras.map(function (c) {
       // [id, fecha, prov, nro, sku, nombre, cant, costo, subtotal, costo_ant, var, origen] → con "Precio venta nuevo" vacío
@@ -105,7 +109,8 @@ function sincronizar() {
     escribir_(HOJAS.precios, datos.precios);
     escribir_(HOJAS.equivalencias, rpc_('sync_equivalencias', {}));
     escribirResumen_(datos);
-    escribirEstado_('✅ Sincronizado ' + Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'dd/MM HH:mm'));
+    escribirEstado_('✅ Sincronizado ' + Utilities.formatDate(new Date(), 'America/Argentina/Buenos_Aires', 'dd/MM HH:mm') + (avisos.length ? ' · ' + avisos.join(' · ') : ''));
+    avisos.forEach(function (a) { SpreadsheetApp.getActive().toast(a, 'Buen Rollo', 8); });
   } finally {
     lock.releaseLock();
   }
@@ -137,6 +142,34 @@ function subirProductos_() {
   if (!filas.length) return;
   rpc_('sync_productos', { p_filas: filas });
   filas.forEach(function (f) { h.getRange(f.fila, col('_editado') + 1).setValue(false); });
+}
+
+// Productos cuya fila se borró de la planilla desde la última sincronización
+function subirBorrados_() {
+  var anteriores = leerSkus_();
+  if (!anteriores.length) return '';
+  var h = hoja_(HOJAS.productos);
+  var ultima = h.getLastRow();
+  var actuales = {};
+  if (ultima >= 2) h.getRange(2, 1, ultima - 1, 1).getValues().forEach(function (r) { if (r[0]) actuales[String(r[0]).trim().toUpperCase()] = true; });
+  var faltan = anteriores.filter(function (s) { return !actuales[s]; });
+  if (!faltan.length) return '';
+  var res = rpc_('sync_eliminar', { p_skus: faltan });
+  return '🗑️ ' + (res.borrados + res.archivados) + ' producto(s) borrado(s)';
+}
+
+function leerSkus_() {
+  var h = SpreadsheetApp.getActive().getSheetByName('_sync');
+  if (!h || h.getLastRow() < 1) return [];
+  return h.getRange(1, 1, h.getLastRow(), 1).getValues().map(function (r) { return String(r[0]).trim().toUpperCase(); }).filter(String);
+}
+
+function guardarSkus_(skus) {
+  var ss = SpreadsheetApp.getActive();
+  var h = ss.getSheetByName('_sync');
+  if (!h) { h = ss.insertSheet('_sync'); h.hideSheet(); }
+  h.clearContents();
+  if (skus.length) h.getRange(1, 1, skus.length, 1).setValues(skus.map(function (s) { return [s]; }));
 }
 
 function subirCompras_() {
