@@ -28,7 +28,7 @@ export default function Escaner({ onCodigo, onCerrar }: { onCodigo: (c: string) 
   }, [onCodigo])
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
+    <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col">
       <div className="flex items-center justify-between p-4 text-white pt-[max(1rem,env(safe-area-inset-top))]">
         <span className="font-semibold">Apuntá al código de barras</span>
         <button onClick={onCerrar} className="p-2 rounded-full bg-white/10" aria-label="Cerrar"><Icono n="x" /></button>

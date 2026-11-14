@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth'
 import Icono from '../components/Icono'
+const Escaner = lazy(() => import('../components/Escaner'))
 import { useCatalogo, useConfig, useProductosDueno } from '../lib/catalogo'
 import { $, fechaHora, filtrar, n, pct, precioSugerido } from '../lib/formato'
 import { mensajeError, supabase, type Producto } from '../lib/supabase'
@@ -132,6 +133,10 @@ function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado, onEl
   const [error, setError] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [hist, setHist] = useState<Hist[]>([])
+  const [escaneando, setEscaneando] = useState(false)
+  const [skuManual, setSkuManual] = useState(false)
+  const alEscanear = useCallback((c: string) => { setF((x) => ({ ...x, codigo_barras: c })); setEscaneando(false) }, [])
+  const cerrarEscaner = useCallback(() => setEscaneando(false), [])
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value })
   const num = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')))
   const costo = num(f.costo), precio = num(f.precio)
@@ -143,6 +148,17 @@ function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado, onEl
     supabase.from('historial_precios').select('fecha,costo_anterior,costo_nuevo,precio_anterior,precio_nuevo,motivo').eq('producto_id', producto.id).order('fecha', { ascending: false }).limit(10)
       .then(({ data }) => setHist((data as Hist[]) ?? []))
   }, [producto])
+
+  // Producto nuevo: el SKU se arma solo a partir del nombre (ej. "ALA-0311"), salvo que lo escribas a mano
+  useEffect(() => {
+    if (producto || skuManual) return
+    if (!f.nombre.trim()) { setF((x) => ({ ...x, sku: '' })); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('nuevo_sku', { p_nombre: f.nombre })
+      if (data) setF((x) => (x.nombre === f.nombre ? { ...x, sku: data as string } : x))
+    }, 400)
+    return () => clearTimeout(t)
+  }, [f.nombre, producto, skuManual])
 
   async function eliminar() {
     if (!producto || !confirm(`¿Borrar "${producto.nombre}"? Si tiene ventas o compras queda archivado: deja de aparecer, pero el historial se conserva.`)) return
@@ -178,8 +194,13 @@ function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado, onEl
           </div>
           <div><label className="etiqueta">Nombre</label><input value={f.nombre} onChange={set('nombre')} className="campo" /></div>
           <div className="grid grid-cols-2 gap-2">
-            <div><label className="etiqueta">SKU</label><input value={f.sku} onChange={set('sku')} className="campo" placeholder="Automático" /></div>
-            <div><label className="etiqueta">Código de barras</label><input value={f.codigo_barras} onChange={set('codigo_barras')} className="campo" inputMode="numeric" /></div>
+            <div><label className="etiqueta">SKU {!producto && !skuManual && f.sku && <span className="normal-case font-normal text-emerald-700">· automático</span>}</label><input value={f.sku} onChange={(e) => { setSkuManual(e.target.value.trim() !== ''); setF({ ...f, sku: e.target.value.toUpperCase() }) }} className="campo" placeholder="Se genera con el nombre" /></div>
+            <div><label className="etiqueta">Código de barras</label>
+              <div className="flex gap-1.5">
+                <input value={f.codigo_barras} onChange={set('codigo_barras')} className="campo min-w-0" inputMode="numeric" placeholder="Escanear o escribir" />
+                <button type="button" onClick={() => setEscaneando(true)} className="btn-primario px-2.5 shrink-0" aria-label="Escanear código de barras"><Icono n="camara" /></button>
+              </div>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div><label className="etiqueta">Costo</label><input value={f.costo} onChange={set('costo')} className="campo num" inputMode="decimal" /></div>
@@ -199,6 +220,12 @@ function EditarProducto({ producto, margen, redondeo, onCerrar, onGuardado, onEl
           {error && <p className="text-red-600 text-sm">{error}</p>}
           <button onClick={guardar} disabled={guardando} className="btn-primario w-full py-3">{guardando ? 'Guardando…' : 'Guardar'}</button>
           {producto && <button onClick={eliminar} className="w-full py-2 text-red-600 text-sm font-semibold flex items-center justify-center gap-1"><Icono n="basura" className="w-4 h-4" /> Borrar producto</button>}
+
+          {escaneando && (
+            <Suspense fallback={<div className="fixed inset-0 z-[60] bg-black/90" />}>
+              <Escaner onCodigo={alEscanear} onCerrar={cerrarEscaner} />
+            </Suspense>
+          )}
 
           {hist.length > 0 && (
             <div>
