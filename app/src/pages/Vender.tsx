@@ -25,11 +25,13 @@ export default function Vender() {
   const [escaneando, setEscaneando] = useState(false)
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error' | 'info'; texto: string } | null>(null)
   const [verCarrito, setVerCarrito] = useState(false)
+  const [escaneado, setEscaneado] = useState<Producto | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [codigoSinAsignar, setCodigoSinAsignar] = useState<string | null>(null)
   const buscador = useRef<HTMLInputElement>(null)
 
   useEffect(() => { localStorage.setItem(K_CARRITO, JSON.stringify(carrito)) }, [carrito])
+  useEffect(() => { if (!escaneado) return; const t = setTimeout(() => setEscaneado(null), 5000); return () => clearTimeout(t) }, [escaneado, carrito])
   useEffect(() => { if (!aviso) return; const t = setTimeout(() => setAviso(null), 3500); return () => clearTimeout(t) }, [aviso])
 
   const resultados = useMemo(() => filtrar(productos, q, 40), [productos, q])
@@ -52,7 +54,8 @@ export default function Vender() {
     const p = productos.find((x) => x.codigo_barras === codigo || x.sku === codigo.toUpperCase())
     if (p) {
       agregar(p)
-      setAviso({ tipo: 'ok', texto: `+1 ${p.nombre}` })
+      setEscaneando(false)
+      setEscaneado(p)
     } else {
       setEscaneando(false)
       if (esDueno) setCodigoSinAsignar(codigo)
@@ -254,6 +257,34 @@ export default function Vender() {
         <AsignarCodigo codigo={codigoSinAsignar} productos={productos} onCerrar={() => setCodigoSinAsignar(null)}
           onAsignado={(p) => { setProductos((ps) => ps.map((x) => (x.id === p.id ? { ...x, codigo_barras: codigoSinAsignar } : x))); agregar({ ...p, codigo_barras: codigoSinAsignar }); setCodigoSinAsignar(null); setAviso({ tipo: 'ok', texto: `Código guardado en ${p.nombre}` }) }} />
       )}
+
+      {escaneado && (() => {
+        const cant = carrito.find((l) => l.p.id === escaneado.id)?.cantidad ?? 0
+        return (
+          <div className="fixed inset-x-0 top-14 z-50 px-3" onClick={() => setEscaneado(null)}>
+            <div onClick={(e) => e.stopPropagation()} className="max-w-3xl mx-auto bg-white rounded-2xl shadow-2xl border-2 border-emerald-500 p-4">
+              <div className="flex items-start gap-3">
+                <span className="w-10 h-10 rounded-full bg-emerald-500 text-white grid place-items-center shrink-0"><Icono n="check" /></span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Agregado a la venta</div>
+                  <div className="text-lg font-bold leading-tight">{escaneado.nombre}</div>
+                  <div className="text-sm text-stone-500 mt-0.5">{escaneado.sku} · Stock {n(escaneado.stock)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-extrabold num">{$(escaneado.precio)}</div>
+                  <div className="chip bg-marca text-white mt-1">×{n(cant)} en la venta</div>
+                </div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => cambiarCant(escaneado.id, -1)} className="btn-secundario px-3" aria-label="Restar"><Icono n="menos" /></button>
+                <button onClick={() => agregar(escaneado)} className="btn-secundario px-3" aria-label="Sumar"><Icono n="sumar" /></button>
+                <button onClick={() => { setEscaneado(null); setEscaneando(true) }} className="btn-primario flex-1"><Icono n="camara" /> Escanear otro</button>
+                <button onClick={() => setEscaneado(null)} className="btn-secundario px-3" aria-label="Cerrar"><Icono n="x" /></button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {aviso && (
         <div className={`fixed left-1/2 -translate-x-1/2 top-16 z-50 max-w-[90vw] px-4 py-2.5 rounded-xl shadow-lg font-medium text-white ${aviso.tipo === 'ok' ? 'bg-emerald-600' : aviso.tipo === 'error' ? 'bg-red-600' : 'bg-stone-800'}`}>
