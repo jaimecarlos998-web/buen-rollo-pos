@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth'
 import Icono from '../components/Icono'
-import { $, fechaHora, hoyISO, n } from '../lib/formato'
+import { $, aInputFechaHora, deInputFechaHora, fechaHora, hoyISO, n } from '../lib/formato'
 import { alCambiarCola, cola, vaciarCola, type VentaPendiente } from '../lib/offline'
 import { mensajeError, supabase } from '../lib/supabase'
 
@@ -24,6 +24,7 @@ export default function Ventas() {
   const [ventas, setVentas] = useState<Venta[]>([])
   const [cargando, setCargando] = useState(false)
   const [abierta, setAbierta] = useState<number | null>(null)
+  const [editandoFecha, setEditandoFecha] = useState<{ id: number; valor: string } | null>(null)
   const [pendientes, setPendientes] = useState<VentaPendiente[]>(cola.todas())
   const [error, setError] = useState('')
 
@@ -52,6 +53,15 @@ export default function Ventas() {
   function moverDia(delta: number) {
     const d = new Date(`${dia}T12:00:00`); d.setDate(d.getDate() + delta)
     setDia(d.toISOString().slice(0, 10))
+  }
+
+  async function cambiarFecha(v: Venta, valor: string) {
+    if (!valor) return
+    const { error } = await supabase.rpc('cambiar_fecha_venta', { p_venta_id: v.id, p_fecha: deInputFechaHora(valor) })
+    if (error) { alert(mensajeError(error)); return }
+    setEditandoFecha(null)
+    const nuevoDia = valor.slice(0, 10)
+    if (nuevoDia !== dia) { setDia(nuevoDia) } else cargar()
   }
 
   async function anular(v: Venta) {
@@ -114,6 +124,15 @@ export default function Ventas() {
                   <div key={k} className="flex justify-between gap-2 py-0.5"><span>{n(i.cantidad)} × {i.nombre}</span><span className="num">{$(i.subtotal)}</span></div>
                 ))}
                 {v.notas && <p className="mt-1 text-stone-600">📝 {v.notas}</p>}
+                {esDueno && (editandoFecha?.id === v.id ? (
+                  <div className="flex flex-wrap gap-2 items-center mt-2">
+                    <input type="datetime-local" value={editandoFecha.valor} max={aInputFechaHora()} onChange={(e) => setEditandoFecha({ id: v.id, valor: e.target.value })} className="campo py-1.5 text-sm" />
+                    <button onClick={() => cambiarFecha(v, editandoFecha.valor)} className="btn-primario py-1.5 text-sm">Guardar</button>
+                    <button onClick={() => setEditandoFecha(null)} className="text-stone-500 text-sm">Cancelar</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setEditandoFecha({ id: v.id, valor: aInputFechaHora(v.fecha) })} className="mt-2 text-marca text-sm font-semibold">📅 Cambiar fecha ({fechaHora(v.fecha)})</button>
+                ))}
                 <div className="flex justify-between mt-2 text-xs text-stone-500"><span>{v.nro}</span>
                   {esDueno && !v.anulada && <button onClick={() => anular(v)} className="text-red-600 font-semibold">Anular venta</button>}
                 </div>

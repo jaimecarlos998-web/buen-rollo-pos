@@ -3,7 +3,7 @@ import { useAuth } from '../auth'
 const Escaner = lazy(() => import('../components/Escaner'))
 import Icono from '../components/Icono'
 import { useCatalogo, useConfig } from '../lib/catalogo'
-import { $, filtrar, n } from '../lib/formato'
+import { $, aInputFechaHora, deInputFechaHora, filtrar, n } from '../lib/formato'
 import { cola, enviarVenta, uuid, type VentaPendiente } from '../lib/offline'
 import { mensajeError, supabase, type Producto } from '../lib/supabase'
 
@@ -22,6 +22,7 @@ export default function Vender() {
   const [cliente, setCliente] = useState('')
   const [notas, setNotas] = useState('')
   const [pagaCon, setPagaCon] = useState('')
+  const [fechaVenta, setFechaVenta] = useState('') // '' = ahora (sólo el dueño puede elegir otra)
   const [escaneando, setEscaneando] = useState(false)
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error' | 'info'; texto: string } | null>(null)
   const [verCarrito, setVerCarrito] = useState(false)
@@ -78,11 +79,12 @@ export default function Vender() {
   async function cobrar() {
     if (!carrito.length) return
     if (!metodo) { setAviso({ tipo: 'error', texto: 'Elegí el medio de pago' }); return }
+    if (esDueno && fechaVenta && new Date(deInputFechaHora(fechaVenta)).getTime() > Date.now() + 300000) { setAviso({ tipo: 'error', texto: 'La fecha no puede ser futura' }); return }
     if (metodo === 'Efectivo' && paga != null && paga < total) { setAviso({ tipo: 'error', texto: `Faltan ${$(total - paga)}: revisá con cuánto paga` }); return }
     if (carrito.some((l) => !(l.cantidad > 0))) { setAviso({ tipo: 'error', texto: 'Hay una cantidad inválida' }); return }
     const venta: VentaPendiente = {
       client_uuid: uuid(),
-      fecha: new Date().toISOString(),
+      fecha: esDueno && fechaVenta ? deInputFechaHora(fechaVenta) : new Date().toISOString(),
       items: carrito.map((l) => ({
         producto_id: l.p.id, cantidad: l.cantidad, nombre: l.p.nombre, precio_lista: l.p.precio,
         ...(esDueno && l.precio !== l.p.precio ? { precio: l.precio } : {}),
@@ -107,7 +109,7 @@ export default function Vender() {
     }
     // descuenta stock en pantalla al instante
     setProductos((ps) => ps.map((p) => { const l = carrito.find((x) => x.p.id === p.id); return l ? { ...p, stock: p.stock - l.cantidad } : p }))
-    setCarrito([]); setMetodo(''); setCliente(''); setNotas(''); setPagaCon(''); setVerCarrito(false); setQ('')
+    setCarrito([]); setMetodo(''); setCliente(''); setNotas(''); setPagaCon(''); setFechaVenta(''); setVerCarrito(false); setQ('')
     setEnviando(false)
     setTimeout(recargar, 1500)
   }
@@ -238,6 +240,19 @@ export default function Vender() {
                   <input value={notas} onChange={(e) => setNotas(e.target.value)} className="campo" placeholder="Ej: debe $500" />
                 </div>
               </div>
+
+              {esDueno && (
+                <div className="mt-3">
+                  <label className="etiqueta">Fecha de la venta</label>
+                  <div className="flex gap-2 items-center">
+                    <button onClick={() => setFechaVenta('')} className={`px-3.5 py-2 rounded-xl border font-semibold text-sm ${!fechaVenta ? 'bg-marca text-white border-marca' : 'bg-white border-stone-300'}`}>Ahora</button>
+                    <input type="datetime-local" value={fechaVenta} max={aInputFechaHora()} onChange={(e) => setFechaVenta(e.target.value)}
+                      onFocus={() => { if (!fechaVenta) setFechaVenta(aInputFechaHora()) }}
+                      className={`campo py-2 ${fechaVenta ? 'border-acento ring-2 ring-acento/30' : ''}`} />
+                  </div>
+                  {fechaVenta && <p className="text-xs text-amber-700 mt-1">La venta se va a registrar con esta fecha, no con la de hoy.</p>}
+                </div>
+              )}
 
               <div className="flex items-center justify-between mt-5 mb-3">
                 <span className="text-stone-500">Total</span>

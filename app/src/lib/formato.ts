@@ -73,3 +73,15 @@ export function parsearPrecio(v: unknown): number | null {
   const x = Number(s)
   return isFinite(x) ? x : null
 }
+
+/** "2026-11-16T10:30" (hora de Argentina) para <input type="datetime-local"> */
+export function aInputFechaHora(iso: string | Date = new Date()) {
+  const d = new Date(iso)
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d)
+  const g = (t: string) => p.find((x) => x.type === t)?.value ?? ''
+  return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`
+}
+/** Valor de <input type="datetime-local"> (hora de Argentina) a ISO */
+export function deInputFechaHora(v: string) {
+  return new Date(`${v}:00-03:00`).toISOString()
+}
